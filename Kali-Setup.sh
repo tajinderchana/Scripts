@@ -1,67 +1,66 @@
 #!/bin/bash
 
-##################################################################
-## Commands to use
-##
-## Check USB Connected Devices - lsusb
-## Check network connections - iwconfig
-## Connect to a wifi network - sudo nmcli dev wifi connect "<SSID>" password "<password>"
-## 
-##################################################################
+# Check if running as root; if not, re-run as root
+if [ "$EUID" -ne 0 ]; then 
+    echo "Please run as root"
+    exit
+fi
 
-##################################################################
-## Change Wifi Card Mode 
-## - Do not run this untill the drivers have been installed.
-##
-## sudo ip link set wlan0 down      # Disable the interface
-## sudo iw dev wlan0 set type monitor  # Set to monitor mode
-## sudo ip link set wlan0 up        # Re-enable the interface
-## 
-## 
-##################################################################
+echo "Starting consolidated Kali setup script..."
 
-##################################################################
-## Setup Fluxion 
-## 
-## sudo git clone https://github.com/FluxionNetwork/fluxion.git
-## cd fluxion
-## /fluxion.sh -i
-## 
-## 
-## 
-## 
-##################################################################
+# Preconfigure console-setup to select "Guess optimal character set"
+echo "Configuring character set for console font to 'Guess optimal character set'..."
+sudo debconf-set-selections <<< 'console-setup console-setup/charmap47 select Guess optimal character set'
 
-# Update Kali 
-sudo apt-get update
-sudo apt-get dist-upgrade
-reboot
+# Automatically allow service restarts during libc upgrades
+echo "Configuring automatic service restarts during package upgrades..."
+sudo debconf-set-selections <<< 'libc6:amd64 libraries/restart-without-asking boolean true'
+sudo debconf-set-selections <<< 'libc6:arm64 libraries/restart-without-asking boolean true'
 
-# Setup Kali VM for Tools to allow copy and paste
-sudo dpkg --configure -a
-sudo apt install spice-vdagent
-sudo apt install qemu-guest-agent
-reboot
+# Set DEBIAN_FRONTEND to noninteractive to auto-confirm prompts, including PostgreSQL
+export DEBIAN_FRONTEND=noninteractive
 
-# Setup WiFI Drivers - Do not plug in WiFi card until this is run
-mkdir /home/kali/Desktop/WiFi_Drivers
-cd /home/kali/Desktop/WiFi_Drivers
-sudo git clone https://github.com/Khatcode/AWUS036ACH-Automated-Driver-Install.git
-cd AWUS036ACH-Automated-Driver-Install
-sudo chmod +x Alfasetup.sh
-sudo ./Alfasetup.sh
+# Suppress PostgreSQL prompt about obsolete version
+echo "Setting PostgreSQL configuration to suppress obsolete version prompt..."
+sudo debconf-set-selections <<< 'postgresql-common postgresql-common/obsolete-major note'
 
-# Install Tools needed
-sudo apt install hcxtools
+# Run update and upgrade in non-interactive mode to avoid prompts
+echo "Updating system packages..."
+sudo apt-get update -y && sudo apt-get dist-upgrade -y
 
-## Select 1 when prompted for the source of the install
-## When prompted, Reboot
-## After rebooting plug in the Adaptor
+# Install VM tools for clipboard and drag-and-drop support
+echo "Installing VM tools (spice-vdagent and qemu-guest-agent)..."
+sudo apt-get install -y spice-vdagent qemu-guest-agent
 
-# Unpack Worklist in Kali
-## This is needed to crack WiFi password
-sudo gzip -d /usr/share/wordlists/rockyou.txt.gz
+# Setup WiFi drivers; only proceed if the directory does not exist
+DRIVER_DIR="/home/kali/Desktop/WiFi_Drivers"
+if [ ! -d "$DRIVER_DIR" ]; then
+    echo "Setting up WiFi drivers..."
+    mkdir -p "$DRIVER_DIR"
+    cd "$DRIVER_DIR"
+    sudo git clone https://github.com/Khatcode/AWUS036ACH-Automated-Driver-Install.git
+    cd AWUS036ACH-Automated-Driver-Install
+    # Automatically select "1" for Realtek drivers installation
+    echo "Running Alfasetup.sh with automatic input selection..."
+    echo "1" | sudo ./Alfasetup.sh
+else
+    echo "WiFi drivers already set up; skipping..."
+fi
 
+# Install additional tools if they are not already installed
+if ! command -v hcxdumptool &> /dev/null; then
+    echo "Installing hcxtools..."
+    sudo apt-get install -y hcxtools
+fi
 
-gzip -d /usr/share/wordlists/rockyou.txt.gz
- 
+# Unpack rockyou wordlist if not already unpacked
+WORDLIST_PATH="/usr/share/wordlists/rockyou.txt"
+if [ -f "${WORDLIST_PATH}.gz" ]; then
+    echo "Unpacking rockyou wordlist..."
+    sudo gzip -d "${WORDLIST_PATH}.gz"
+else
+    echo "rockyou wordlist already unpacked; skipping..."
+fi
+
+echo "Setup complete. Rebooting system..."
+sudo reboot
